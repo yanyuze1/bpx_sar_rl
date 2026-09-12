@@ -1,0 +1,21 @@
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    cmake \
+    g++ \
+    build-essential \
+    libyaml-cpp-dev \
+    libeigen3-dev \
+    libboost-all-dev \
+    libspdlog-dev \
+    libfmt-dev \
+    libtbb-dev \
+    liblcm-dev \
+    libglfw3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /home/bpx_sar_rl
+
+CMD ["/bin/bash"]

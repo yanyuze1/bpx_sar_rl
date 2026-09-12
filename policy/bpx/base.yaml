@@ -1,0 +1,24 @@
+bpx:
+  dt: 0.005
+  decimation: 4
+
+  initial_height: 0.48
+  armature: 0.003
+
+  torque_limit: 30.0
+
+  # 仿真 GetUp/GetDown 参数。
+  fixed_kp: 80.0
+  fixed_kd: 3.0
+
+  # Passive 是阻尼模式，不能保证维持站立。
+  passive_kd: 1.0
+
+  # 训练顺序：
+  # FL_roll FR_roll HL_roll HR_roll
+  # FL_pitch FR_pitch HL_pitch HR_pitch
+  # FL_knee FR_knee HL_knee HR_knee
+  default_dof_pos:
+    [0.0, 0.0, 0.0, 0.0,
+     0.8, 0.8, 0.8, 0.8,
+     -1.5, -1.5, -1.5, -1.5]

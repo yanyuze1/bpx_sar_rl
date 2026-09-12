@@ -24,6 +24,7 @@ public:
     void Enter() override
     {
         rl.rl_init_done = false;
+        rl.control.velocity.fill(0.0f);
         Run();
     }
 
@@ -54,6 +55,7 @@ public:
     void Enter() override
     {
         rl.rl_init_done = false;
+        rl.control.velocity.fill(0.0f);
 
         from_ = rl.robot_state.q;
         rl.start_pos = from_;
@@ -63,7 +65,7 @@ public:
 
     void Run() override
     {
-        elapsed_ += rl.params.dt;
+        elapsed_ = std::min(elapsed_ + rl.params.dt, 2.0f);
 
         Interpolate(
             from_,
@@ -90,6 +92,11 @@ public:
         return id_;
     }
 
+    float Progress() const override
+    {
+        return std::clamp(elapsed_ / 2.0f, 0.0f, 1.0f);
+    }
+
 private:
     Joints from_{};
     float elapsed_ = 0.0f;
@@ -106,13 +113,14 @@ public:
     void Enter() override
     {
         rl.rl_init_done = false;
+        rl.control.velocity.fill(0.0f);
         from_ = rl.robot_state.q;
         elapsed_ = 0.0f;
     }
 
     void Run() override
     {
-        elapsed_ += rl.params.dt;
+        elapsed_ = std::min(elapsed_ + rl.params.dt, 2.0f);
 
         Interpolate(
             from_,
@@ -131,6 +139,11 @@ public:
         return key == Key::GetUp
             ? StateID::GetUp
             : id_;
+    }
+
+    float Progress() const override
+    {
+        return std::clamp(elapsed_ / 2.0f, 0.0f, 1.0f);
     }
 
 private:
@@ -161,6 +174,7 @@ public:
     void Exit() override
     {
         rl.rl_init_done = false;
+        rl.control.velocity.fill(0.0f);
     }
 
     StateID CheckChange(Key key) override
@@ -218,6 +232,7 @@ void RLFSMState::Interpolate(
 }
 
 FSM::FSM(RL& context)
+    : rl_(context)
 {
     states_[Index(StateID::Passive)] =
         std::make_unique<Passive>(context);
@@ -246,6 +261,11 @@ const char* FSM::Name() const
     return names[Index(current_)];
 }
 
+float FSM::Progress() const
+{
+    return states_[Index(current_)]->Progress();
+}
+
 void FSM::Reset()
 {
     states_[Index(current_)]->Exit();
@@ -262,10 +282,10 @@ void FSM::Change(StateID next)
     try
     {
         states_[Index(current_)]->Enter();
-        std::cout << "FSM -> " << Name() << '\n';
     }
     catch (const std::exception& error)
     {
+        rl_.BeforeLog();
         std::cerr
             << "FSM Enter failed: "
             << error.what() << '\n';
@@ -297,6 +317,7 @@ void FSM::Run(Key key)
     }
     catch (const std::exception& error)
     {
+        rl_.BeforeLog();
         std::cerr
             << "FSM Run failed: "
             << error.what() << '\n';

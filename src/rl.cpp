@@ -224,6 +224,7 @@ FSM& RL::GetFSM()
 
 void RL::InitRL()
 {
+    BeforeLog();
     const auto directory =
         project_root_ / "policy/bpx/mirrorme";
 
@@ -295,6 +296,13 @@ void RL::StateController()
     if (input == K::Num9) request = Key::GetDown;
     fsm_->Run(request);
 
+    // 在公共控制层限制速度输入，sim 和后续 real 共用。
+    if (fsm_->Current() != StateID::Locomotion || !rl_init_done)
+    {
+        control.velocity.fill(0.0f);
+        return;
+    }
+
     switch (input)
     {
     case K::W: control.velocity[0] += 0.1f; break;
@@ -309,6 +317,12 @@ void RL::StateController()
     control.velocity[0] = std::clamp(control.velocity[0], -1.5f, 1.5f);
     control.velocity[1] = std::clamp(control.velocity[1], -1.0f, 1.0f);
     control.velocity[2] = std::clamp(control.velocity[2], -2.0f, 2.0f);
+    // 命令按 0.1 的网格保存，消除连续加减产生的浮点残差。
+    for (float& value : control.velocity)
+    {
+        value = std::round(value * 10.0f) / 10.0f;
+        if (std::abs(value) < 1e-6f) value = 0.0f;
+    }
     // 与参考框架一样，由 RobotControl 在本周期末 ClearInput。
 }
 

@@ -28,6 +28,7 @@ public:
     virtual void Enter() = 0;
     virtual void Run() = 0;
     virtual void Exit() {}
+    virtual float Progress() const { return 1.0f; }
 
     virtual StateID CheckChange(Key)
     {
@@ -56,10 +57,13 @@ public:
     void Reset();
 
     const char* Name() const;
+    StateID Current() const { return current_; }
+    float Progress() const;
 
 private:
     void Change(StateID next);
 
+    RL& rl_;
     std::array<std::unique_ptr<RLFSMState>, 4> states_;
 
     StateID current_ = StateID::Passive;

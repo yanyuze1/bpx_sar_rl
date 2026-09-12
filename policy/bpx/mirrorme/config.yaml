@@ -1,7 +1,7 @@
 bpx/mirrorme:
   model_name: "bpx_flat_45.pt"
 
-  kp: 30.0
+  kp: 40.0
   kd: 1.0
 
   action_scale: 0.25

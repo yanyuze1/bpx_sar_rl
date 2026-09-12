@@ -10,6 +10,11 @@
 #include <cmath>
 #include <csignal>
 #include <cstdio>
+#include <cstdlib>
+#include <iomanip>
+#include <sstream>
+#include <sys/ioctl.h>
+#include <unistd.h>
 #include <exception>
 #include <filesystem>
 #include <functional>
@@ -95,6 +100,13 @@ public:
         }
     }
 
+    void BeforeLog() override {
+        if (sim_) {
+            const std::lock_guard<std::recursive_mutex> lock(sim_->mtx);
+            ClearStatus();
+        }
+    }
+
     void Check() {
         InitRL();
         const auto observation = ComputeObservation();
@@ -148,11 +160,19 @@ public:
             loop_control_->start();
             loop_rl_->start();
             loop_keyboard_->start();
+            {
+                const std::lock_guard<std::recursive_mutex> lock(sim_->mtx);
+                const char* term = std::getenv("TERM");
+                status_enabled_ = isatty(STDOUT_FILENO) &&
+                    (!term || std::string(term) != "dumb");
+            }
             sim_->RenderLoop();
         } catch (...) { main_error = std::current_exception(); }
         {
             const std::lock_guard<std::recursive_mutex> lock(sim_->mtx);
             sim_->exitrequest.store(1);
+            if (status_visible_) std::cout << '\n' << std::flush;
+            status_enabled_ = status_visible_ = false;
             sim_->loadrequest = 0;
             sim_->cond_loadrequest.notify_all();
         }
@@ -177,7 +197,10 @@ private:
         else
             result.model.reset(mj_loadXML(file.string().c_str(), nullptr, error, sizeof(error)));
         Require(result.model != nullptr, std::string("Model load failed: ") + error);
-        if (error[0]) std::cerr << "MuJoCo: " << error << '\n';
+        if (error[0]) {
+            BeforeLog();
+            std::cerr << "MuJoCo: " << error << '\n';
+        }
         auto* m = result.model.get();
         Require(m->nq == 19 && m->nv == 18 && m->nu == 12,
                 "Expected BPX nq=19, nv=18, nu=12");
@@ -271,6 +294,7 @@ private:
         std::snprintf(sim_->load_error, sizeof(sim_->load_error), "%s", message.c_str());
         mju_zero(scene_.data->ctrl, scene_.model->nu);
         ResetController();
+        BeforeLog();
         std::cerr << "Simulation paused: " << message << '\n';
     }
 
@@ -317,12 +341,47 @@ private:
                      "Focus the terminal for robot commands. Initial state: PAUSED.\n";
     }
 
+    void ClearStatus() {
+        if (status_visible_) {
+            std::cout << "\r\033[2K" << std::flush;
+            status_visible_ = false;
+        }
+        last_status_.clear();
+    }
+
     void PrintStatus() {
-        std::cout << "[STATE] " << GetFSM().Name()
-                  << " | " << (sim_->run ? "RUN" : "PAUSED")
-                  << " | policy=" << policy_steps
-                  << " | cmd=" << control.velocity[0] << ' '
-                  << control.velocity[1] << ' ' << control.velocity[2] << '\n';
+        if (!status_enabled_) return;
+        const auto now = Clock::now();
+        if (now - last_status_time_ < std::chrono::milliseconds(100)) return;
+        last_status_time_ = now;
+
+        std::ostringstream out;
+        out << (sim_->run ? "RUN" : "PAUSED") << " | " << GetFSM().Name();
+        const auto state = GetFSM().Current();
+        if (state == StateID::GetUp || state == StateID::GetDown) {
+            const float progress = GetFSM().Progress();
+            constexpr int width = 16;
+            const int filled = std::clamp(static_cast<int>(progress * width), 0, width);
+            const int percent = std::clamp(static_cast<int>(progress * 100), 0, 100);
+            out << " [" << std::string(filled, '=')
+                << std::string(width - filled, '.') << "] "
+                << std::setw(3) << percent << '%';
+        }
+        out << " | cmd=" << std::fixed << std::setprecision(1)
+            << control.velocity[0] << ' ' << control.velocity[1]
+            << ' ' << control.velocity[2];
+        if (state == StateID::Locomotion) out << " | policy=" << policy_steps;
+        std::string line = out.str();
+        // 留一列，避免达到终端右边界后自动折行。
+        winsize size{};
+        const std::size_t columns =
+            ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) == 0 && size.ws_col > 1
+                ? size.ws_col : 80;
+        if (line.size() >= columns) line.resize(columns - 1);
+        if (line == last_status_) return;
+        std::cout << "\r\033[2K" << line << std::flush;
+        last_status_ = line;
+        status_visible_ = true;
     }
 
     void RobotControl() {
@@ -341,15 +400,14 @@ private:
             sim_->speed_changed = true;
             sim_->pending_.ui_update_simulation = true;
         } else if (key == K::H) {
+            BeforeLog();
             PrintHelp();
         } else if (sim_->run || key == K::P) {
             StateController();
-        } else if (key != K::None) {
-            std::cout << "[NOTE] Press Enter to run before sending motion commands.\n";
         }
         control.ClearInput();
         SetCommand();
-        if (key != K::None) PrintStatus();
+        PrintStatus();
     }
 
     void Step() {
@@ -468,6 +526,10 @@ private:
     std::unique_ptr<mj::Simulate> sim_;
     std::unique_ptr<LoopFunc> loop_control_, loop_rl_, loop_keyboard_;
     std::exception_ptr loop_error_;
+    bool status_enabled_ = false;
+    bool status_visible_ = false;
+    std::string last_status_;
+    Clock::time_point last_status_time_{};
 };
 
 int main(int argc, char** argv) {

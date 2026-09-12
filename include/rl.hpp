@@ -18,6 +18,9 @@ public:
     virtual void GetState() = 0;
     virtual void SetCommand() = 0;
 
+    // 后端可在一次性日志输出前清除动态状态行。
+    virtual void BeforeLog() {}
+
     void InitKeyboard();
     void RestoreKeyboard();
     void KeyboardInterface();

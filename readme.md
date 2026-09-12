@@ -5,5 +5,5 @@
 </p>
 
 <p align="center">
-  <img src="images/videoplayback.gif" alt="alt text" />
+  <img src="./images/videoplayback.gif" alt="alt text" />
 </p>
